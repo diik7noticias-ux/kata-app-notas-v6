@@ -1,0 +1,44 @@
+name: Analyze Dart Code
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft_id:
+        description: "ID do draft (UUID) — usado apenas para tracking"
+        required: true
+        type: string
+
+concurrency:
+  group: analyze-${{ github.event.inputs.draft_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.8"
+          channel: "stable"
+          cache: true
+
+      - name: Gerar pasta android/ e web/ (se necessario)
+        run: flutter create . --platforms=android,web --project-name notas_v6 || true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      # build_runner apenas se o projeto usar (|| true garante nao bloquear)
+      - name: Build runner (se aplicavel)
+        run: flutter pub run build_runner build --delete-conflicting-outputs || true
+
+      - name: Flutter analyze (gate)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings lib/

@@ -1,0 +1,79 @@
+name: Build Flutter Web Preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft_id:
+        description: "ID do draft (UUID) a construir"
+        required: true
+        type: string
+
+concurrency:
+  group: preview-${{ github.event.inputs.draft_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.8"
+          channel: "stable"
+          cache: true
+
+      - name: Enable GitHub Pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/pages \
+            -X POST \
+            -f source[branch]=gh-pages \
+            -f source[path]=/ \
+            2>/dev/null \
+            && echo "Pages enabled" \
+            || echo "Pages enabled or already active"
+
+      - name: Gerar pasta web/
+        run: flutter create . --platforms=web --project-name notas_v6
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Gerar codigo (build_runner)
+        run: flutter pub run build_runner build --delete-conflicting-outputs || true
+
+      - name: Flutter analyze (gate)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings lib/
+
+      # TODO: substituir --pwa-strategy=none quando Flutter >= 3.45 remover a flag
+      - name: Flutter build web
+        run: |
+          flutter build web \
+            --release \
+            --base-href="/${{ github.event.repository.name }}/" \
+            --pwa-strategy=none
+
+      - name: Fix SPA 404
+        run: cp build/web/index.html build/web/404.html
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build/web
+          publish_branch: gh-pages
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
+          commit_message: "Preview build for draft ${{ github.event.inputs.draft_id }}"
+          force_orphan: true
